@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 import ssl
 from requests.adapters import HTTPAdapter
+from urllib.parse import urljoin
 
 class TLSAdapter(HTTPAdapter):
 
@@ -26,6 +27,8 @@ class handler(BaseHTTPRequestHandler):
 
         try:
 
+            base = "https://epos.bihar.gov.in"
+
             session = requests.Session()
 
             session.mount("https://", TLSAdapter())
@@ -34,121 +37,100 @@ class handler(BaseHTTPRequestHandler):
                 "User-Agent": "Mozilla/5.0"
             }
 
-            urls = [
+            response = session.get(
+                base,
+                headers=headers,
+                timeout=30
+            )
 
-                "https://epos.bihar.gov.in",
+            soup = BeautifulSoup(
+                response.text,
+                "html.parser"
+            )
 
-                "https://epos.bihar.gov.in/SRC_Trans_Int.jsp",
+            links = []
 
-                "https://epos.bihar.gov.in/FPS_Trans_Abstract.jsp",
+            for tag in soup.find_all("a"):
 
-                "https://epos.bihar.gov.in/AnnavitranTransInt.jsp"
+                href = tag.get("href")
 
-            ]
+                if href:
 
-            final_data = []
+                    full_url = urljoin(base, href)
 
-            for url in urls:
+                    links.append({
+                        "text": tag.get_text(strip=True),
+                        "url": full_url
+                    })
 
-                try:
+            jsps = []
 
-                    response = session.get(
-                        url,
-                        headers=headers,
-                        timeout=30
-                    )
+            for link in links:
 
-                    soup = BeautifulSoup(
-                        response.text,
-                        "html.parser"
-                    )
+                if ".jsp" in link["url"]:
 
-                    forms = []
+                    try:
 
-                    for form in soup.find_all("form"):
+                        r = session.get(
+                            link["url"],
+                            headers=headers,
+                            timeout=20
+                        )
 
-                        inputs = []
+                        s = BeautifulSoup(
+                            r.text,
+                            "html.parser"
+                        )
 
-                        for inp in form.find_all("input"):
+                        forms = []
 
-                            inputs.append({
-                                "name": inp.get("name"),
-                                "type": inp.get("type"),
-                                "value": inp.get("value")
+                        for form in s.find_all("form"):
+
+                            inputs = []
+
+                            for inp in form.find_all("input"):
+
+                                inputs.append({
+                                    "name": inp.get("name"),
+                                    "type": inp.get("type")
+                                })
+
+                            forms.append({
+                                "action": form.get("action"),
+                                "method": form.get("method"),
+                                "inputs": inputs
                             })
 
-                        forms.append({
-                            "action": form.get("action"),
-                            "method": form.get("method"),
-                            "inputs": inputs
+                        jsps.append({
+
+                            "page": link["url"],
+
+                            "title":
+                            s.title.text
+                            if s.title else "",
+
+                            "forms_found":
+                            len(forms),
+
+                            "forms":
+                            forms
+
                         })
 
-                    tables = []
+                    except Exception as e:
 
-                    for table in soup.find_all("table"):
-
-                        rows = []
-
-                        for tr in table.find_all("tr"):
-
-                            cols = [
-
-                                td.get_text(strip=True)
-
-                                for td in tr.find_all(
-                                    ["td", "th"]
-                                )
-
-                            ]
-
-                            if cols:
-                                rows.append(cols)
-
-                        if rows:
-                            tables.append(rows)
-
-                    final_data.append({
-
-                        "url": url,
-
-                        "title":
-                        soup.title.text
-                        if soup.title else "",
-
-                        "status_code":
-                        response.status_code,
-
-                        "forms_found":
-                        len(forms),
-
-                        "tables_found":
-                        len(tables),
-
-                        "forms":
-                        forms[:3],
-
-                        "sample_tables":
-                        tables[:1]
-
-                    })
-
-                except Exception as e:
-
-                    final_data.append({
-
-                        "url": url,
-
-                        "error": str(e)
-
-                    })
+                        jsps.append({
+                            "page": link["url"],
+                            "error": str(e)
+                        })
 
             output = {
 
                 "success": True,
 
-                "developer": "Abhay Kumar",
+                "total_links": len(links),
 
-                "results": final_data
+                "jsp_pages": jsps
 
             }
 
