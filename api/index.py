@@ -13,7 +13,6 @@ class TLSAdapter(HTTPAdapter):
         ctx = ssl.create_default_context()
 
         ctx.check_hostname = False
-
         ctx.verify_mode = ssl.CERT_NONE
 
         ctx.set_ciphers("DEFAULT@SECLEVEL=1")
@@ -42,7 +41,7 @@ class handler(BaseHTTPRequestHandler):
 
                 self.wfile.write(json.dumps({
                     "success": False,
-                    "message": "aadhaar required"
+                    "message": "aadhaar parameter required"
                 }).encode())
 
                 return
@@ -55,6 +54,7 @@ class handler(BaseHTTPRequestHandler):
                 "User-Agent": "Mozilla/5.0"
             }
 
+            # Open Website
             url = "https://epos.bihar.gov.in"
 
             response = session.get(
@@ -68,14 +68,32 @@ class handler(BaseHTTPRequestHandler):
                 "html.parser"
             )
 
-            title = soup.title.text if soup.title else "No Title"
+            forms = []
+
+            for form in soup.find_all("form"):
+
+                form_data = {
+                    "action": form.get("action"),
+                    "method": form.get("method"),
+                    "inputs": []
+                }
+
+                for inp in form.find_all("input"):
+
+                    form_data["inputs"].append({
+                        "name": inp.get("name"),
+                        "type": inp.get("type"),
+                        "value": inp.get("value")
+                    })
+
+                forms.append(form_data)
 
             result = {
                 "success": True,
                 "aadhaar": aadhaar,
-                "title": title,
-                "status_code": response.status_code,
-                "message": "SSL bypass success"
+                "title": soup.title.text if soup.title else "",
+                "forms_found": len(forms),
+                "forms": forms
             }
 
             self.send_response(200)
@@ -83,7 +101,7 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
 
             self.wfile.write(
-                json.dumps(result).encode()
+                json.dumps(result, indent=2).encode()
             )
 
         except Exception as e:
