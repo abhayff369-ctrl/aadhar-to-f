@@ -5,13 +5,16 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
 import ssl
 from requests.adapters import HTTPAdapter
-from urllib3.poolmanager import PoolManager
 
 class TLSAdapter(HTTPAdapter):
 
     def init_poolmanager(self, *args, **kwargs):
 
         ctx = ssl.create_default_context()
+
+        ctx.check_hostname = False
+
+        ctx.verify_mode = ssl.CERT_NONE
 
         ctx.set_ciphers("DEFAULT@SECLEVEL=1")
 
@@ -57,8 +60,7 @@ class handler(BaseHTTPRequestHandler):
             response = session.get(
                 url,
                 headers=headers,
-                timeout=30,
-                verify=False
+                timeout=30
             )
 
             soup = BeautifulSoup(
@@ -68,12 +70,12 @@ class handler(BaseHTTPRequestHandler):
 
             title = soup.title.text if soup.title else "No Title"
 
-            data = {
+            result = {
                 "success": True,
                 "aadhaar": aadhaar,
-                "website_title": title,
+                "title": title,
                 "status_code": response.status_code,
-                "message": "Connected Successfully"
+                "message": "SSL bypass success"
             }
 
             self.send_response(200)
@@ -81,7 +83,7 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
 
             self.wfile.write(
-                json.dumps(data).encode()
+                json.dumps(result).encode()
             )
 
         except Exception as e:
