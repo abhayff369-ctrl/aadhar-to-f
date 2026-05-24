@@ -2,9 +2,9 @@ from http.server import BaseHTTPRequestHandler
 import json
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse, parse_qs
 import ssl
 from requests.adapters import HTTPAdapter
-from urllib.parse import urljoin
 
 class TLSAdapter(HTTPAdapter):
 
@@ -27,18 +27,52 @@ class handler(BaseHTTPRequestHandler):
 
         try:
 
-            base = "https://epos.bihar.gov.in"
+            parsed = urlparse(self.path)
+
+            params = parse_qs(parsed.query)
+
+            month = params.get("month", ["5"])[0]
+            year = params.get("year", ["2026"])[0]
+            rc = params.get("rc", [""])[0]
+
+            if not rc:
+
+                self.send_response(400)
+                self.send_header(
+                    "Content-type",
+                    "application/json"
+                )
+                self.end_headers()
+
+                self.wfile.write(json.dumps({
+                    "success": False,
+                    "message": "rc parameter required"
+                }).encode())
+
+                return
 
             session = requests.Session()
 
-            session.mount("https://", TLSAdapter())
+            session.mount(
+                "https://",
+                TLSAdapter()
+            )
 
             headers = {
                 "User-Agent": "Mozilla/5.0"
             }
 
-            response = session.get(
-                base,
+            url = "https://epos.bihar.gov.in/SRC_Trans_Int.jsp"
+
+            payload = {
+                "month": month,
+                "year": year,
+                "rcno": rc
+            }
+
+            response = session.post(
+                url,
+                data=payload,
                 headers=headers,
                 timeout=30
             )
@@ -48,89 +82,49 @@ class handler(BaseHTTPRequestHandler):
                 "html.parser"
             )
 
-            links = []
+            tables = []
 
-            for tag in soup.find_all("a"):
+            for table in soup.find_all("table"):
 
-                href = tag.get("href")
+                rows = []
 
-                if href:
+                for tr in table.find_all("tr"):
 
-                    full_url = urljoin(base, href)
+                    cols = [
 
-                    links.append({
-                        "text": tag.get_text(strip=True),
-                        "url": full_url
-                    })
+                        td.get_text(strip=True)
 
-            jsps = []
-
-            for link in links:
-
-                if ".jsp" in link["url"]:
-
-                    try:
-
-                        r = session.get(
-                            link["url"],
-                            headers=headers,
-                            timeout=20
+                        for td in tr.find_all(
+                            ["td", "th"]
                         )
 
-                        s = BeautifulSoup(
-                            r.text,
-                            "html.parser"
-                        )
+                    ]
 
-                        forms = []
+                    if cols:
+                        rows.append(cols)
 
-                        for form in s.find_all("form"):
+                if rows:
+                    tables.append(rows)
 
-                            inputs = []
-
-                            for inp in form.find_all("input"):
-
-                                inputs.append({
-                                    "name": inp.get("name"),
-                                    "type": inp.get("type")
-                                })
-
-                            forms.append({
-                                "action": form.get("action"),
-                                "method": form.get("method"),
-                                "inputs": inputs
-                            })
-
-                        jsps.append({
-
-                            "page": link["url"],
-
-                            "title":
-                            s.title.text
-                            if s.title else "",
-
-                            "forms_found":
-                            len(forms),
-
-                            "forms":
-                            forms
-
-                        })
-
-                    except Exception as e:
-
-                        jsps.append({
-                            "page": link["url"],
-                            "error": str(e)
-                        })
-
-            output = {
+            result = {
 
                 "success": True,
 
-                "total_links": len(links),
+                "month": month,
 
-                "jsp_pages": jsps
+                "year": year,
+
+                "rc": rc,
+
+                "title":
+                soup.title.text
+                if soup.title else "",
+
+                "tables_found":
+                len(tables),
+
+                "data":
+                tables[:5]
 
             }
 
@@ -145,7 +139,7 @@ class handler(BaseHTTPRequestHandler):
 
             self.wfile.write(
                 json.dumps(
-                    output,
+                    result,
                     indent=2
                 ).encode()
             )
