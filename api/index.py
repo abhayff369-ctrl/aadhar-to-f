@@ -14,7 +14,6 @@ class TLSAdapter(HTTPAdapter):
 
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-
         ctx.set_ciphers("DEFAULT@SECLEVEL=1")
 
         kwargs["ssl_context"] = ctx
@@ -28,28 +27,10 @@ class handler(BaseHTTPRequestHandler):
         try:
 
             parsed = urlparse(self.path)
-
             params = parse_qs(parsed.query)
 
-            month = params.get("month", ["5"])[0]
+            month = params.get("month", ["4"])[0]
             year = params.get("year", ["2026"])[0]
-            rc = params.get("rc", [""])[0]
-
-            if not rc:
-
-                self.send_response(400)
-                self.send_header(
-                    "Content-type",
-                    "application/json"
-                )
-                self.end_headers()
-
-                self.wfile.write(json.dumps({
-                    "success": False,
-                    "message": "rc parameter required"
-                }).encode())
-
-                return
 
             session = requests.Session()
 
@@ -66,8 +47,7 @@ class handler(BaseHTTPRequestHandler):
 
             payload = {
                 "month": month,
-                "year": year,
-                "rcno": rc
+                "year": year
             }
 
             response = session.post(
@@ -91,41 +71,33 @@ class handler(BaseHTTPRequestHandler):
                 for tr in table.find_all("tr"):
 
                     cols = [
-
                         td.get_text(strip=True)
-
-                        for td in tr.find_all(
-                            ["td", "th"]
-                        )
-
+                        for td in tr.find_all(["td", "th"])
                     ]
 
                     if cols:
-                        rows.append(cols)
+
+                        # simple masking
+                        masked = []
+
+                        for c in cols:
+
+                            if len(c) > 6:
+                                c = c[:2] + "****"
+
+                            masked.append(c)
+
+                        rows.append(masked)
 
                 if rows:
                     tables.append(rows)
 
             result = {
-
                 "success": True,
-
                 "month": month,
-
                 "year": year,
-
-                "rc": rc,
-
-                "title":
-                soup.title.text
-                if soup.title else "",
-
-                "tables_found":
-                len(tables),
-
-                "data":
-                tables[:5]
-
+                "tables_found": len(tables),
+                "data": tables[:5]
             }
 
             self.send_response(200)
@@ -156,9 +128,6 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
 
             self.wfile.write(json.dumps({
-
                 "success": False,
-
                 "error": str(e)
-
             }).encode())
