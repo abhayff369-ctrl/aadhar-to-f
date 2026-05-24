@@ -33,19 +33,6 @@ class handler(BaseHTTPRequestHandler):
 
             aadhaar = params.get("aadhaar", [""])[0]
 
-            if not aadhaar:
-
-                self.send_response(400)
-                self.send_header("Content-type", "application/json")
-                self.end_headers()
-
-                self.wfile.write(json.dumps({
-                    "success": False,
-                    "message": "aadhaar parameter required"
-                }).encode())
-
-                return
-
             session = requests.Session()
 
             session.mount("https://", TLSAdapter())
@@ -54,7 +41,6 @@ class handler(BaseHTTPRequestHandler):
                 "User-Agent": "Mozilla/5.0"
             }
 
-            # Open Website
             url = "https://epos.bihar.gov.in"
 
             response = session.get(
@@ -72,32 +58,58 @@ class handler(BaseHTTPRequestHandler):
 
             for form in soup.find_all("form"):
 
-                form_data = {
-                    "action": form.get("action"),
-                    "method": form.get("method"),
-                    "inputs": []
-                }
+                inputs = []
 
                 for inp in form.find_all("input"):
 
-                    form_data["inputs"].append({
+                    inputs.append({
                         "name": inp.get("name"),
                         "type": inp.get("type"),
                         "value": inp.get("value")
                     })
 
-                forms.append(form_data)
+                forms.append({
+                    "action": form.get("action"),
+                    "method": form.get("method"),
+                    "inputs": inputs
+                })
+
+            tables = []
+
+            for table in soup.find_all("table"):
+
+                rows = []
+
+                for tr in table.find_all("tr"):
+
+                    cols = [
+                        td.get_text(strip=True)
+                        for td in tr.find_all(["td", "th"])
+                    ]
+
+                    if cols:
+                        rows.append(cols)
+
+                if rows:
+                    tables.append(rows)
 
             result = {
                 "success": True,
                 "aadhaar": aadhaar,
                 "title": soup.title.text if soup.title else "",
                 "forms_found": len(forms),
-                "forms": forms
+                "tables_found": len(tables),
+                "forms": forms[:3],
+                "sample_table": tables[:1]
             }
 
             self.send_response(200)
-            self.send_header("Content-type", "application/json")
+
+            self.send_header(
+                "Content-type",
+                "application/json"
+            )
+
             self.end_headers()
 
             self.wfile.write(
@@ -107,7 +119,12 @@ class handler(BaseHTTPRequestHandler):
         except Exception as e:
 
             self.send_response(500)
-            self.send_header("Content-type", "application/json")
+
+            self.send_header(
+                "Content-type",
+                "application/json"
+            )
+
             self.end_headers()
 
             self.wfile.write(json.dumps({
