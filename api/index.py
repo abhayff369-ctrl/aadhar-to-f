@@ -2,7 +2,6 @@ from http.server import BaseHTTPRequestHandler
 import json
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs
 import ssl
 from requests.adapters import HTTPAdapter
 
@@ -27,12 +26,6 @@ class handler(BaseHTTPRequestHandler):
 
         try:
 
-            parsed = urlparse(self.path)
-
-            params = parse_qs(parsed.query)
-
-            aadhaar = params.get("aadhaar", [""])[0]
-
             session = requests.Session()
 
             session.mount("https://", TLSAdapter())
@@ -41,66 +34,122 @@ class handler(BaseHTTPRequestHandler):
                 "User-Agent": "Mozilla/5.0"
             }
 
-            url = "https://epos.bihar.gov.in"
+            urls = [
 
-            response = session.get(
-                url,
-                headers=headers,
-                timeout=30
-            )
+                "https://epos.bihar.gov.in",
 
-            soup = BeautifulSoup(
-                response.text,
-                "html.parser"
-            )
+                "https://epos.bihar.gov.in/SRC_Trans_Int.jsp",
 
-            forms = []
+                "https://epos.bihar.gov.in/FPS_Trans_Abstract.jsp",
 
-            for form in soup.find_all("form"):
+                "https://epos.bihar.gov.in/AnnavitranTransInt.jsp"
 
-                inputs = []
+            ]
 
-                for inp in form.find_all("input"):
+            final_data = []
 
-                    inputs.append({
-                        "name": inp.get("name"),
-                        "type": inp.get("type"),
-                        "value": inp.get("value")
+            for url in urls:
+
+                try:
+
+                    response = session.get(
+                        url,
+                        headers=headers,
+                        timeout=30
+                    )
+
+                    soup = BeautifulSoup(
+                        response.text,
+                        "html.parser"
+                    )
+
+                    forms = []
+
+                    for form in soup.find_all("form"):
+
+                        inputs = []
+
+                        for inp in form.find_all("input"):
+
+                            inputs.append({
+                                "name": inp.get("name"),
+                                "type": inp.get("type"),
+                                "value": inp.get("value")
+                            })
+
+                        forms.append({
+                            "action": form.get("action"),
+                            "method": form.get("method"),
+                            "inputs": inputs
+                        })
+
+                    tables = []
+
+                    for table in soup.find_all("table"):
+
+                        rows = []
+
+                        for tr in table.find_all("tr"):
+
+                            cols = [
+
+                                td.get_text(strip=True)
+
+                                for td in tr.find_all(
+                                    ["td", "th"]
+                                )
+
+                            ]
+
+                            if cols:
+                                rows.append(cols)
+
+                        if rows:
+                            tables.append(rows)
+
+                    final_data.append({
+
+                        "url": url,
+
+                        "title":
+                        soup.title.text
+                        if soup.title else "",
+
+                        "status_code":
+                        response.status_code,
+
+                        "forms_found":
+                        len(forms),
+
+                        "tables_found":
+                        len(tables),
+
+                        "forms":
+                        forms[:3],
+
+                        "sample_tables":
+                        tables[:1]
+
                     })
 
-                forms.append({
-                    "action": form.get("action"),
-                    "method": form.get("method"),
-                    "inputs": inputs
-                })
+                except Exception as e:
 
-            tables = []
+                    final_data.append({
 
-            for table in soup.find_all("table"):
+                        "url": url,
 
-                rows = []
+                        "error": str(e)
 
-                for tr in table.find_all("tr"):
+                    })
 
-                    cols = [
-                        td.get_text(strip=True)
-                        for td in tr.find_all(["td", "th"])
-                    ]
+            output = {
 
-                    if cols:
-                        rows.append(cols)
-
-                if rows:
-                    tables.append(rows)
-
-            result = {
                 "success": True,
-                "aadhaar": aadhaar,
-                "title": soup.title.text if soup.title else "",
-                "forms_found": len(forms),
-                "tables_found": len(tables),
-                "forms": forms[:3],
-                "sample_table": tables[:1]
+
+                "developer": "Abhay Kumar",
+
+                "results": final_data
+
             }
 
             self.send_response(200)
@@ -113,7 +162,10 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
 
             self.wfile.write(
-                json.dumps(result, indent=2).encode()
+                json.dumps(
+                    output,
+                    indent=2
+                ).encode()
             )
 
         except Exception as e:
@@ -128,6 +180,9 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
 
             self.wfile.write(json.dumps({
+
                 "success": False,
+
                 "error": str(e)
+
             }).encode())
